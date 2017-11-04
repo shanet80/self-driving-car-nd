@@ -49,3 +49,4 @@ Temporary Items
 traffic-sign-data/
 *.p
 checkpoints/
+p3-behavioral-cloning/data/*
