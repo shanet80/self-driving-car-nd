@@ -7,7 +7,7 @@ from sklearn.utils import shuffle
 from skimage.transform import warp, resize
 from keras.models import Sequential
 from keras.layers.convolutional import Conv2D
-from keras.layers import Flatten, Dense, Lambda, Cropping2D
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Dropout
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 
 def flip(image, angle):
@@ -24,7 +24,7 @@ def shift(image, angle):
     angle += -dx * 0.005
     return image, angle
 
-def generator(samples, batch_size=128, train=False):
+def generator(samples, batch_size=500, train=False):
     num_samples = len(samples)
     while 1:
         samples = shuffle(samples)
@@ -39,9 +39,9 @@ def generator(samples, batch_size=128, train=False):
                     image = cv2.imread(name)
                     angle = float(batch_sample[3])
                     if i == 1:
-                        angle = angle + 0.2 # left
+                        angle = angle + 0.1 # left
                     elif i == 2:
-                        angle = angle - 0.2 # right
+                        angle = angle - 0.1 # right
                     if train == True:
                         image, angle = flip(image, angle)
                         image, angle = shift(image, angle)
@@ -76,10 +76,15 @@ model = Sequential()
 model.add(Lambda(lambda x: (x / 255.0) - 0.5, input_shape=(160,320,3)))
 model.add(Cropping2D(cropping=((50,20), (0,0))))
 model.add(Conv2D(24,(5,5), activation='relu', strides=(2,2)))
+model.add(Dropout(0.5))
 model.add(Conv2D(36,(5,5), activation='relu', strides=(2,2)))
+model.add(Dropout(0.5))
 model.add(Conv2D(48,(5,5), activation='relu', strides=(2,2)))
+model.add(Dropout(0.5))
 model.add(Conv2D(64,(3,3), activation='relu'))
+model.add(Dropout(0.5))
 model.add(Conv2D(64,(3,3), activation='relu'))
+model.add(Dropout(0.5))
 model.add(Flatten())
 model.add(Dense(100))
 model.add(Dense(50))
@@ -95,6 +100,6 @@ checkpoint = ModelCheckpoint('./p3-behavioral-cloning/model-{epoch:02d}.h5', mon
 
 hist = model.fit_generator(train_generator, steps_per_epoch=(20000/32),
                            validation_data=validation_generator, validation_steps=(4480/32),
-                           epochs=50, callbacks=[early_stop, checkpoint])
+                           epochs=10, callbacks=[early_stop, checkpoint])
 
 model.save('./p3-behavioral-cloning/model.h5')
