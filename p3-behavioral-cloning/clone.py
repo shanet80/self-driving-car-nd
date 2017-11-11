@@ -7,8 +7,9 @@ from sklearn.utils import shuffle
 from skimage.transform import warp, resize
 from keras.models import Sequential
 from keras.layers.convolutional import Conv2D
-from keras.layers import Flatten, Dense, Lambda, Cropping2D, Dropout
+from keras.layers import Flatten, Dense, Lambda, Cropping2D, Dropout, ELU
 from keras.callbacks import EarlyStopping, ModelCheckpoint
+
 
 def flip(image, angle):
     if np.random.randint(0,2) == 1:
@@ -24,7 +25,7 @@ def shift(image, angle):
     angle += -dx * 0.005
     return image, angle
 
-def generator(samples, batch_size=500, train=False):
+def generator(samples, batch_size=32, train=False):
     num_samples = len(samples)
     while 1:
         samples = shuffle(samples)
@@ -34,14 +35,14 @@ def generator(samples, batch_size=500, train=False):
             images = []
             angles = []
             for batch_sample in batch_samples:
-                for i in range(3):
-                    name = './p3-behavioral-cloning/data/IMG/'+batch_sample[i].split('/')[-1]
+                for index in range(0,3):
+                    name = './p3-behavioral-cloning/data/IMG/'+batch_sample[index].split('/')[-1]
                     image = cv2.imread(name)
                     angle = float(batch_sample[3])
-                    if i == 1:
-                        angle = angle + 0.1 # left
-                    elif i == 2:
-                        angle = angle - 0.1 # right
+                    if index == 1:
+                        angle = angle + 0.05 # left
+                    elif index == 2:
+                        angle = angle - 0.05 # right
                     if train == True:
                         image, angle = flip(image, angle)
                         image, angle = shift(image, angle)
@@ -68,6 +69,9 @@ print('Total Samples: {}'.format(len(samples)))
 
 train_samples, validation_samples = train_test_split(samples, test_size=0.2)
 
+print('Training Samples: {}'.format(len(train_samples)))
+print('Validation Samples: {}'.format(len(validation_samples)))
+
 train_generator = generator(train_samples, batch_size=32, train=True)
 validation_generator = generator(validation_samples, batch_size=32, train=False)
 
@@ -75,15 +79,15 @@ validation_generator = generator(validation_samples, batch_size=32, train=False)
 model = Sequential()
 model.add(Lambda(lambda x: (x / 255.0) - 0.5, input_shape=(160,320,3)))
 model.add(Cropping2D(cropping=((50,20), (0,0))))
-model.add(Conv2D(24,(5,5), activation='relu', strides=(2,2)))
-model.add(Dropout(0.5))
-model.add(Conv2D(36,(5,5), activation='relu', strides=(2,2)))
-model.add(Dropout(0.5))
-model.add(Conv2D(48,(5,5), activation='relu', strides=(2,2)))
-model.add(Dropout(0.5))
-model.add(Conv2D(64,(3,3), activation='relu'))
-model.add(Dropout(0.5))
-model.add(Conv2D(64,(3,3), activation='relu'))
+model.add(Conv2D(24,(5,5), activation='elu', strides=(2,2)))
+model.add(Dropout(0.9))
+model.add(Conv2D(36,(5,5), activation='elu', strides=(2,2)))
+model.add(Dropout(0.8))
+model.add(Conv2D(48,(5,5), activation='elu', strides=(2,2)))
+model.add(Dropout(0.7))
+model.add(Conv2D(64,(3,3), activation='elu'))
+model.add(Dropout(0.6))
+model.add(Conv2D(64,(3,3), activation='elu'))
 model.add(Dropout(0.5))
 model.add(Flatten())
 model.add(Dense(100))
@@ -93,13 +97,12 @@ model.add(Dense(1))
 model.summary()
 
 model.compile(loss='mse', optimizer='adam')
-#model.fit(X_train, y_train, validation_split=0.2, shuffle=True, epochs=3)
 
 early_stop = EarlyStopping(monitor='val_loss', patience=10, mode='auto')
-checkpoint = ModelCheckpoint('./p3-behavioral-cloning/model-{epoch:02d}.h5', monitor='val_loss', save_best_only=True, mode='auto')
+checkpoint = ModelCheckpoint('./p3-behavioral-cloning/model.h5', monitor='val_loss', save_best_only=True, mode='auto')
 
-hist = model.fit_generator(train_generator, steps_per_epoch=(20000/32),
-                           validation_data=validation_generator, validation_steps=(4480/32),
-                           epochs=10, callbacks=[early_stop, checkpoint])
+hist = model.fit_generator(train_generator, steps_per_epoch=(len(train_samples) *  3 / 32), verbose=2,
+                           validation_data=validation_generator, validation_steps=(len(validation_samples) * 3 / 32),
+                           epochs=50, callbacks=[early_stop, checkpoint])
 
 model.save('./p3-behavioral-cloning/model.h5')
