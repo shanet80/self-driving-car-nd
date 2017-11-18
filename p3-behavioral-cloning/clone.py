@@ -8,22 +8,28 @@ from skimage.transform import warp, resize
 from keras.models import Sequential
 from keras.layers.convolutional import Conv2D
 from keras.layers import Flatten, Dense, Lambda, Cropping2D, Dropout, ELU
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.callbacks import ModelCheckpoint
 
 
 def flip(image, angle):
     if np.random.randint(0,2) == 1:
         image = image[:, ::-1, :]
-        angle = -1 * angle
+        angle = -angle
     return image, angle
 
-def shift(image, angle):
-    dx = 40 * (np.random.rand() - 0.5)
-    dy = 20 * (np.random.rand() - 0.5)
-    trans_matrix = np.array([[1, 0, dx], [0, 1, dy], [0, 0, 1]])
-    image = warp(image, trans_matrix)
-    angle += -dx * 0.005
-    return image, angle
+def brightness_adjustment(image):
+    # convert to HSV so that its easy to adjust brightness
+    new_img = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+
+    # randomly generate the brightness reduction factor
+    random_bright = .25 + np.random.uniform()
+
+    # Apply the brightness reduction to the V channel
+    new_img[:, :, 2] = new_img[:, :, 2] * random_bright
+
+    # convert to RGB again
+    new_img = cv2.cvtColor(new_img, cv2.COLOR_HSV2RGB)
+    return new_img
 
 def generator(samples, batch_size=32, train=False):
     num_samples = len(samples)
@@ -35,19 +41,19 @@ def generator(samples, batch_size=32, train=False):
             images = []
             angles = []
             for batch_sample in batch_samples:
-                for index in range(0,3):
-                    name = './p3-behavioral-cloning/data/IMG/'+batch_sample[index].split('/')[-1]
-                    image = cv2.imread(name)
-                    angle = float(batch_sample[3])
-                    if index == 1:
-                        angle = angle + 0.05 # left
-                    elif index == 2:
-                        angle = angle - 0.05 # right
-                    if train == True:
-                        image, angle = flip(image, angle)
-                        image, angle = shift(image, angle)
-                    images.append(image)
-                    angles.append(angle)
+                index = np.random.randint(0,3)
+                name = './p3-behavioral-cloning/data/IMG/'+batch_sample[index].split('/')[-1]
+                image = cv2.imread(name)
+                angle = float(batch_sample[3])
+                if index == 1:
+                    angle = angle + 0.1 # left
+                elif index == 2:
+                    angle = angle - 0.1 # right
+                if train == True:
+                    image, angle = flip(image, angle)
+                    image = brightness_adjustment(image)
+                images.append(image)
+                angles.append(angle)
 
             X_train = np.array(images)
             y_train = np.array(angles)
@@ -67,7 +73,7 @@ with open('./p3-behavioral-cloning/data/driving_log.csv') as csvfile:
 
 print('Total Samples: {}'.format(len(samples)))
 
-train_samples, validation_samples = train_test_split(samples, test_size=0.2)
+train_samples, validation_samples = train_test_split(samples, test_size=0.20)
 
 print('Training Samples: {}'.format(len(train_samples)))
 print('Validation Samples: {}'.format(len(validation_samples)))
@@ -80,29 +86,25 @@ model = Sequential()
 model.add(Lambda(lambda x: (x / 255.0) - 0.5, input_shape=(160,320,3)))
 model.add(Cropping2D(cropping=((50,20), (0,0))))
 model.add(Conv2D(24,(5,5), activation='elu', strides=(2,2)))
-model.add(Dropout(0.9))
 model.add(Conv2D(36,(5,5), activation='elu', strides=(2,2)))
-model.add(Dropout(0.8))
 model.add(Conv2D(48,(5,5), activation='elu', strides=(2,2)))
-model.add(Dropout(0.7))
 model.add(Conv2D(64,(3,3), activation='elu'))
-model.add(Dropout(0.6))
 model.add(Conv2D(64,(3,3), activation='elu'))
-model.add(Dropout(0.5))
+model.add(Dropout(0.9))
 model.add(Flatten())
-model.add(Dense(100))
-model.add(Dense(50))
-model.add(Dense(10))
-model.add(Dense(1))
+model.add(Dense(100, activation='elu'))
+model.add(Dense(50, activation='elu'))
+model.add(Dense(10, activation='elu'))
+model.add(Dropout(0.5))
+model.add(Dense(1, activation='elu'))
 model.summary()
 
 model.compile(loss='mse', optimizer='adam')
 
-early_stop = EarlyStopping(monitor='val_loss', patience=10, mode='auto')
-checkpoint = ModelCheckpoint('./p3-behavioral-cloning/model.h5', monitor='val_loss', save_best_only=True, mode='auto')
+checkpoint = ModelCheckpoint('./p3-behavioral-cloning/model-{epoch:02d}.h5', monitor='val_loss', save_best_only=True, mode='auto')
 
-hist = model.fit_generator(train_generator, steps_per_epoch=(len(train_samples) *  3 / 32), verbose=2,
-                           validation_data=validation_generator, validation_steps=(len(validation_samples) * 3 / 32),
-                           epochs=50, callbacks=[early_stop, checkpoint])
+hist = model.fit_generator(train_generator, steps_per_epoch=(500),
+                           validation_data=validation_generator, validation_steps=(100),
+                           epochs=3, callbacks=[checkpoint])
 
 model.save('./p3-behavioral-cloning/model.h5')
